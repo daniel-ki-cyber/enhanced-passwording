@@ -1,6 +1,18 @@
+# Ignore sensitive files
 vault.json
 vault.key
+
+# Ignore log and runtime directories
 logs/
 tickets/
 reports/
+
+# Ignore Python cache
 __pycache__/
+*.py[cod]
+
+# Ignore backup and temp files
+*.log
+*.tmp
+*.bak
+

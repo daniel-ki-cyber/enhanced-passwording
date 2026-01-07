@@ -1,12 +1,18 @@
 # Core dependencies
-cryptography>=45.0.0
+# SECURITY: Pin exact versions to prevent supply chain attacks
+# Update versions intentionally after security review
+cryptography==45.0.4
 
 # API framework
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.5.0
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pydantic==2.11.5
 
-# Testing
-pytest>=8.0.0
-pytest-cov>=4.1.0
-httpx>=0.26.0  # For testing FastAPI
+# Security
+slowapi==0.1.9  # Rate limiting for brute force protection
+PyJWT==2.10.1   # JWT token authentication
+
+# Testing (pinned for reproducibility)
+pytest==9.0.2
+pytest-cov==7.0.0
+httpx==0.28.1  # For testing FastAPI

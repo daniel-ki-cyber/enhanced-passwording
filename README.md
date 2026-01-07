@@ -1,202 +1,161 @@
 # Password Vault
 
-A secure password management tool with enterprise-grade security features including encrypted storage, breach detection, and SIEM integration.
+A secure password management tool built with enterprise security practices. This project implements encrypted credential storage, breach detection via HaveIBeenPwned, and SIEM-compatible logging for security operations workflows.
 
-## Purpose
+## Why I Built This
 
-This project demonstrates practical security engineering by implementing a complete credential management system that goes beyond basic password storage. It addresses real-world security requirements:
+I wanted to create something that goes beyond a typical "store passwords in a file" project. This implements real security controls you'd see in production systems:
 
-- **Credential Security**: Passwords encrypted at rest using industry-standard algorithms with key derivation that meets current OWASP recommendations
-- **Breach Awareness**: Integration with HaveIBeenPwned to identify compromised credentials before they become a problem
-- **Security Operations**: Structured logging and automated incident detection for SOC workflows
-- **Defense in Depth**: Multiple layers including master password authentication, account lockout, and audit trails
+- **Proper cryptography** - Not just "encrypt with AES" but actual key derivation with PBKDF2 (600K iterations per OWASP 2023 guidelines)
+- **API security** - Rate limiting, JWT tokens, brute force protection, security headers
+- **Security operations** - Structured logging that can feed into Splunk/ELK, automated incident detection
+- **Defense in depth** - Multiple layers so one failure doesn't compromise everything
 
 ## Features
 
-### Password Management
-- Generate cryptographically secure passwords using Python's `secrets` module
-- Customizable complexity (length, character sets)
-- Strength analysis with feedback on weak patterns
-- Detection of 100+ commonly used passwords
+**Password Management**
+- Cryptographically secure generation using Python's `secrets` module
+- Strength analysis with pattern detection (keyboard walks, repeated chars, common passwords)
 - Password history tracking to prevent reuse
 
-### Encryption & Authentication
-- **Vault Encryption**: Fernet symmetric encryption (AES-128-CBC with HMAC-SHA256)
-- **Key Derivation**: PBKDF2-SHA256 with 600,000 iterations (per NIST SP 800-132)
-- **Master Password**: Salted hash storage with brute-force protection
-- **Lockout Policy**: 5 failed attempts triggers 60-second lockout
+**Encryption**
+- Fernet symmetric encryption (AES-128-CBC + HMAC-SHA256)
+- PBKDF2-SHA256 key derivation with 600,000 iterations
+- Per-vault salt generation
 
-### Breach Detection
-- HaveIBeenPwned API integration using k-Anonymity model
-- Only SHA-1 hash prefix (5 characters) sent to API—full password never transmitted
-- Breach count severity warnings with actionable recommendations
+**Authentication**
+- JWT session tokens (15-minute access, 24-hour refresh)
+- HTTP Basic Auth fallback for simpler use cases
+- Per-IP brute force tracking with lockout (5 attempts → 60s cooldown)
+- Timing-safe password comparison to prevent side-channel attacks
 
-### Security Logging (SIEM)
-- JSON Lines format (`logs/siem_events.jsonl`) for direct ingestion into Splunk, ELK, QRadar
-- Event types: `login_attempt`, `password_change`, `password_saved`, `password_updated`, `password_deleted`
-- Includes timestamp, status, username, source IP, and custom details
+**Breach Detection**
+- HaveIBeenPwned API integration
+- Uses k-Anonymity model - only sends first 5 chars of SHA-1 hash, never the full password
+- Severity-based warnings with actionable recommendations
 
-### Incident Ticketing
-- Automatic ticket generation from log analysis
-- Detects brute force patterns (3+ failures followed by success)
-- Flags account lockouts for investigation
-- Ticket lifecycle management (create, resolve, export reports)
+**Security Logging**
+- JSON Lines format for SIEM ingestion (Splunk, ELK, QRadar compatible)
+- Log rotation with compression (configurable size/count)
+- Automatic incident ticket generation from suspicious patterns
 
 ## Quick Start
 
-### Prerequisites
-- Python 3.10+
-- pip
-
-### Installation
 ```bash
-git clone https://github.com/daniel-ki-cyber/enhanced-passwording.git
-cd enhanced-passwording
+# Clone and install
+git clone https://github.com/daniel-ki-cyber/secure-password-vault.git
+cd secure-password-vault
 pip install -r requirements.txt
-```
 
-### CLI Usage
-```bash
+# CLI usage
 python passapp.py
-```
 
-First run prompts for master password setup. Menu options:
-```
-=== Password Tool Menu ===
-1. Generate a password
-2. Test a password
-3. View saved passwords
-4. Change master password
-5. Exit
-```
-
-### REST API
-```bash
+# API (development)
 uvicorn api.main:app --reload
+# Swagger docs at http://localhost:8000/docs
 ```
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
 
-### Docker
+For production, set these environment variables:
 ```bash
-docker build -t password-vault .
-docker run -p 8000:8000 password-vault
+export JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+export REQUIRE_HTTPS=true
 ```
 
-## Architecture
+## API Endpoints
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Password Vault                               │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐   │
-│  │   CLI App   │     │  REST API   │     │   Breach Check      │   │
-│  │ (passapp.py)│     │  (FastAPI)  │     │ (HaveIBeenPwned)    │   │
-│  └──────┬──────┘     └──────┬──────┘     └──────────┬──────────┘   │
-│         │                   │                       │               │
-│         └─────────┬─────────┴───────────────────────┘               │
-│                   │                                                  │
-│         ┌─────────▼─────────┐                                       │
-│         │   Password        │                                       │
-│         │   Checker         │◄─── Pattern Detection                 │
-│         │                   │◄─── Common Password List              │
-│         └─────────┬─────────┘                                       │
-│                   │                                                  │
-│         ┌─────────▼─────────┐     ┌─────────────────────┐          │
-│         │                   │     │    SIEM Logger      │          │
-│         │   Vault Core      │────►│  (JSON Events)      │          │
-│         │                   │     └─────────┬───────────┘          │
-│         └─────────┬─────────┘               │                       │
-│                   │                         ▼                       │
-│    ┌──────────────┼──────────────┐   ┌─────────────────┐           │
-│    │              │              │   │ Ticket System   │           │
-│    ▼              ▼              ▼   └─────────────────┘           │
-│ ┌──────┐    ┌──────────┐   ┌───────┐                                │
-│ │Master│    │  Vault   │   │ Key   │                                │
-│ │ Hash │    │ (JSON)   │   │ File  │                                │
-│ └──────┘    └──────────┘   └───────┘                                │
-│                                                                      │
-│  Encryption: Fernet (AES-128-CBC + HMAC) + PBKDF2-SHA256            │
-└─────────────────────────────────────────────────────────────────────┘
-```
+**Public:**
+- `GET /health` - Health check
+- `POST /generate` - Generate password with options
+- `POST /check` - Strength analysis + breach check
+- `POST /breach-check` - HaveIBeenPwned lookup only
 
-## API Reference
+**Authentication:**
+- `POST /auth/login` - Get JWT tokens (use Basic Auth)
+- `POST /auth/refresh` - Refresh access token
 
-### Public Endpoints
+**Protected (requires Bearer token or Basic Auth):**
+- `GET /vault` - List all entries
+- `GET /vault/{label}` - Get specific password
+- `POST /vault` - Store new password
+- `PUT /vault/{label}` - Update password
+- `DELETE /vault/{label}` - Delete entry
+- `GET /vault/{label}/history` - Password history
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Service health and vault status |
-| POST | `/generate` | Generate password with options |
-| POST | `/check` | Analyze strength + check breaches |
-| POST | `/breach-check` | HaveIBeenPwned lookup only |
+## Configuration
 
-### Protected Endpoints (Basic Auth)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/vault` | List all entries |
-| GET | `/vault/{label}` | Retrieve specific password |
-| POST | `/vault` | Store new password |
-| PUT | `/vault/{label}` | Update existing password |
-| DELETE | `/vault/{label}` | Remove entry |
-| GET | `/vault/{label}/history` | Previous passwords for entry |
-
-## Security Implementation
-
-| Component | Implementation | Reference |
-|-----------|---------------|-----------|
-| Password Hashing | PBKDF2-SHA256, 600K iterations | OWASP 2023, NIST SP 800-132 |
-| Vault Encryption | Fernet (AES-128-CBC + HMAC-SHA256) | cryptography.io |
-| Breach Detection | SHA-1 k-Anonymity model | HaveIBeenPwned API |
-| Lockout | 5 attempts / 60s cooldown | OWASP Authentication |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_SECRET_KEY` | None | Required for JWT auth (64 hex chars) |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | 15 | Access token lifetime |
+| `JWT_REFRESH_TOKEN_EXPIRE_MINUTES` | 1440 | Refresh token lifetime |
+| `REQUIRE_HTTPS` | false | Reject non-HTTPS requests |
+| `TRUSTED_PROXIES` | (empty) | IPs allowed to set X-Forwarded-For |
+| `SIEM_LOG_MAX_BYTES` | 10485760 | Log rotation threshold |
+| `SIEM_LOG_BACKUP_COUNT` | 5 | Rotated logs to keep |
 
 ## Project Structure
 
 ```
 password-vault/
-├── api/                    # REST API layer
-│   ├── main.py             # FastAPI application
-│   ├── models.py           # Pydantic request/response models
-│   ├── dependencies.py     # Auth and shared dependencies
+├── api/                    # REST API (FastAPI)
+│   ├── main.py             # App config, middleware, security headers
+│   ├── dependencies.py     # Auth logic, brute force protection
 │   └── routes/             # Endpoint handlers
-├── cli/                    # Command-line interface
-│   ├── generator.py        # Password generation flow
-│   ├── tester.py           # Password testing flow
-│   └── manager.py          # Vault management flow
 ├── core/                   # Business logic
-│   ├── auth.py             # Master password, lockout
-│   ├── crypto.py           # Encryption/decryption
-│   ├── vault_ops.py        # CRUD operations
-│   ├── siem.py             # Security event logging
-│   └── tickets.py          # Incident management
-├── tests/                  # Test suite
-├── passapp.py              # CLI entry point
-├── password_checker.py     # Strength analysis
-├── breach_check.py         # HaveIBeenPwned integration
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
+│   ├── crypto.py           # Fernet encryption, PBKDF2
+│   ├── jwt_auth.py         # Token generation/validation
+│   ├── siem.py             # Security logging, rotation
+│   ├── secure_memory.py    # Memory clearing utilities
+│   └── ...
+├── cli/                    # Command-line interface
+├── tests/                  # pytest suite
+├── .github/workflows/      # Security scanning CI
+└── Dockerfile              # Hardened container
 ```
+
+## Security Implementation Details
+
+**Why PBKDF2 with 600K iterations?**
+OWASP 2023 recommends this as the minimum for SHA-256. It makes brute-forcing the master password computationally expensive while keeping login time reasonable (~0.5s).
+
+**Why JWT instead of just Basic Auth?**
+Basic Auth sends the master password with every request. JWT means you authenticate once, get a short-lived token, and the password isn't transmitted repeatedly. The token payload is also encrypted (not just signed) so even if intercepted, the master password isn't extractable.
+
+**Why the SecureBytes class?**
+Python strings are immutable and garbage-collected unpredictably. You can't reliably zero them from memory. `SecureBytes` wraps a `bytearray` that can be explicitly overwritten before disposal. It's not perfect (this is Python, not C), but it reduces the exposure window.
+
+**Why log rotation?**
+Without it, an attacker could trigger endless login failures to fill the disk. The rotation also compresses old logs to save space while keeping audit history.
 
 ## Testing
 
 ```bash
-# Run all tests
-pytest
-
-# With coverage
-pytest --cov=. --cov-report=html
-
-# Specific module
-pytest tests/test_api.py -v
+pytest                          # Run all tests
+pytest --cov=. --cov-report=html  # With coverage
+pytest tests/test_api.py -v     # Specific module
 ```
+
+The GitHub Actions workflow runs pip-audit, Bandit, detect-secrets, and CodeQL on every push.
+
+## Docker
+
+```bash
+docker build -t password-vault .
+docker run -p 8000:8000 -e JWT_SECRET_KEY="your-key" password-vault
+```
+
+The container runs as non-root and binds to localhost by default.
+
+## Known Limitations
+
+1. **Single-user design** - One master password for the whole vault. Multi-tenant would need a different architecture.
+2. **No JWT key rotation** - Changing the secret invalidates all tokens. Would need a key versioning system for zero-downtime rotation.
+3. **Python memory** - Even with SecureBytes, Python's GC and string interning mean sensitive data might linger in memory longer than ideal.
 
 ## License
 
-MIT License
+MIT
 
 ## Author
 
-Daniel Ki - [LinkedIn](https://linkedin.com/in/daniel-ki-712749196)
+Daniel Ki - [LinkedIn](https://linkedin.com/in/daniel-ki-712749196) | [GitHub](https://github.com/daniel-ki-cyber)

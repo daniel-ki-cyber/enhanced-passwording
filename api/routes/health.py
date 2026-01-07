@@ -1,14 +1,12 @@
 """Health check endpoints.
 
 Public endpoints for service health monitoring.
+Note: Does not expose sensitive information about vault state.
 """
 
-import os
 from datetime import datetime
 
 from fastapi import APIRouter
-
-from core import MASTER_FILE
 
 
 router = APIRouter(tags=["Health"])
@@ -22,9 +20,13 @@ async def root():
 
 @router.get("/health")
 async def health_check():
-    """Detailed health check."""
+    """Detailed health check.
+
+    Note: Intentionally does not expose vault existence or configuration
+    to prevent information disclosure to unauthenticated users.
+    """
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "vault_exists": os.path.exists(MASTER_FILE)
+        "version": "1.0.0"
     }

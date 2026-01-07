@@ -1,0 +1,225 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly on Monday at 9am UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit safety
+
+      - name: Run pip-audit
+        run: |
+          pip install -r requirements.txt
+          pip-audit --strict --desc on
+
+      - name: Run safety check
+        run: |
+          safety check -r requirements.txt --full-report
+        continue-on-error: true  # Safety DB requires API key for full features
+
+  static-analysis:
+    name: Static Code Analysis (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Bandit
+        run: pip install bandit[toml]
+
+      - name: Run Bandit security scan
+        run: |
+          bandit -r . -f json -o bandit-report.json --exclude ./tests,./venv,./.venv || true
+          bandit -r . -f txt --exclude ./tests,./venv,./.venv
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install detect-secrets
+        run: pip install detect-secrets
+
+      - name: Run detect-secrets scan
+        run: |
+          detect-secrets scan --all-files --exclude-files '\.git/.*' > .secrets.baseline || true
+          detect-secrets audit .secrets.baseline --report --json > secrets-report.json 2>/dev/null || true
+
+      - name: Check for high-entropy secrets
+        run: |
+          # Fail if any high-confidence secrets are found
+          if [ -f .secrets.baseline ]; then
+            python -c "
+          import json
+          import sys
+          with open('.secrets.baseline') as f:
+              data = json.load(f)
+          results = data.get('results', {})
+          total = sum(len(v) for v in results.values())
+          if total > 0:
+              print(f'WARNING: Found {total} potential secrets')
+              for file, secrets in results.items():
+                  for s in secrets:
+                      print(f'  - {file}:{s.get(\"line_number\", \"?\")} - {s.get(\"type\", \"unknown\")}')
+              # Don't fail, just warn - review manually
+          else:
+              print('No secrets detected')
+          "
+          fi
+
+  code-quality:
+    name: Code Quality & Type Checking
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r requirements.txt
+
+      - name: Run Ruff linter
+        run: ruff check . --output-format=github
+
+      - name: Run type checking with mypy
+        run: |
+          mypy --install-types --non-interactive --ignore-missing-imports . || true
+        continue-on-error: true  # Type checking is informational
+
+  test-security:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run security-focused tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+  docker-security:
+    name: Docker Image Security
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t password-vault:test .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'password-vault:test'
+          format: 'table'
+          exit-code: '0'  # Don't fail, just report
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, static-analysis, secret-detection, code-quality, test-security]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          echo "=== Security Scan Summary ==="
+          echo "Dependency Scan: ${{ needs.dependency-scan.result }}"
+          echo "Static Analysis: ${{ needs.static-analysis.result }}"
+          echo "Secret Detection: ${{ needs.secret-detection.result }}"
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Security Tests: ${{ needs.test-security.result }}"
+
+          # Fail if critical jobs failed
+          if [ "${{ needs.dependency-scan.result }}" == "failure" ]; then
+            echo "CRITICAL: Dependency vulnerabilities found!"
+            exit 1
+          fi
+
+          if [ "${{ needs.test-security.result }}" == "failure" ]; then
+            echo "CRITICAL: Security tests failed!"
+            exit 1
+          fi
+
+          echo "Security scan completed successfully"

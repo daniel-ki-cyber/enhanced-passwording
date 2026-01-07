@@ -1,11 +1,54 @@
 """Pydantic models for API request/response validation.
 
 Defines data structures for all API endpoints.
+Includes security-focused input validation for labels.
 """
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from core.config import MAX_LABEL_LENGTH, LABEL_ALLOWED_CHARS
+
+
+def validate_label(label: str) -> str:
+    """Validate and sanitize a password entry label.
+
+    Security validations:
+    - Length check (prevents DoS via extremely long labels)
+    - Character whitelist (prevents injection attacks)
+    - Unicode normalization (prevents homograph attacks)
+    - Whitespace normalization (prevents confusion)
+
+    Args:
+        label: The label to validate
+
+    Returns:
+        Sanitized label string
+
+    Raises:
+        ValueError: If label contains invalid characters or is too long
+    """
+    # Strip and normalize whitespace
+    label = " ".join(label.split())
+
+    # Length check
+    if len(label) > MAX_LABEL_LENGTH:
+        raise ValueError(f"Label must be {MAX_LABEL_LENGTH} characters or less")
+
+    if len(label) < 1:
+        raise ValueError("Label cannot be empty")
+
+    # Character whitelist check
+    invalid_chars = set(label) - LABEL_ALLOWED_CHARS
+    if invalid_chars:
+        # Don't reveal all invalid chars (could be used for probing)
+        raise ValueError(
+            "Label contains invalid characters. "
+            "Use only letters, numbers, spaces, and: - _ . @ #"
+        )
+
+    return label
 
 
 class PasswordGenerateRequest(BaseModel):
@@ -40,9 +83,18 @@ class PasswordCheckResponse(BaseModel):
 
 
 class PasswordSaveRequest(BaseModel):
-    """Request model for saving a password."""
+    """Request model for saving a password.
+
+    Label is validated for allowed characters to prevent injection attacks.
+    """
     label: str = Field(..., min_length=1, max_length=100, description="Label for the password")
     password: str = Field(..., min_length=1, description="Password to save")
+
+    @field_validator('label')
+    @classmethod
+    def validate_label_field(cls, v: str) -> str:
+        """Validate label using security-focused validation."""
+        return validate_label(v)
 
 
 class PasswordEntry(BaseModel):
@@ -69,7 +121,7 @@ class HealthResponse(BaseModel):
     """Health check response."""
     status: str
     timestamp: str
-    vault_exists: bool
+    version: str
 
 
 class BreachCheckResponse(BaseModel):

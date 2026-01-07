@@ -24,13 +24,19 @@ class TestPublicEndpoints:
         assert response.json()["status"] == "healthy"
 
     def test_health_endpoint(self):
-        """Health endpoint should return detailed status."""
+        """Health endpoint should return detailed status.
+
+        Note: Intentionally does NOT include vault_exists to prevent
+        information disclosure to unauthenticated users.
+        """
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert "status" in data
         assert "timestamp" in data
-        assert "vault_exists" in data
+        assert "version" in data
+        # Security: vault_exists should NOT be exposed
+        assert "vault_exists" not in data
 
     def test_generate_password_default(self):
         """Generate password with default settings."""

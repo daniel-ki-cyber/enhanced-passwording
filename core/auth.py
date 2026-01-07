@@ -7,6 +7,7 @@ Uses PBKDF2-SHA256 with configurable iterations per OWASP guidelines.
 import getpass
 import hashlib
 import os
+import secrets
 import time
 from typing import Optional, Tuple
 
@@ -73,7 +74,10 @@ def load_master_hash() -> Optional[Tuple[bytes, bytes]]:
 
 
 def verify_password_hash(password: str, salt: bytes, stored_hash: bytes) -> bool:
-    """Verify a password against stored hash.
+    """Verify a password against stored hash using constant-time comparison.
+
+    Uses secrets.compare_digest() to prevent timing attacks that could
+    leak information about the password hash through response time analysis.
 
     Args:
         password: Password to verify
@@ -84,7 +88,7 @@ def verify_password_hash(password: str, salt: bytes, stored_hash: bytes) -> bool
         True if password matches, False otherwise
     """
     computed_hash = hash_password(password, salt)
-    return computed_hash == stored_hash
+    return secrets.compare_digest(computed_hash, stored_hash)
 
 
 def is_master_password_set() -> bool:

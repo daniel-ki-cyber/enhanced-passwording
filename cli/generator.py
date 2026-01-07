@@ -1,16 +1,102 @@
 """Password generation CLI flows.
 
 Handles password generation, preview, and optional saving.
+Implements secure password display to prevent history leakage.
 """
 
 import secrets
 import string
+import sys
 
 from core import DEFAULT_PASSWORD_LENGTH
 from password_checker import check_password_strength
 from vault import save_password
 
 from cli.prompts import prompt_for_password_length, prompt_for_character_types
+
+
+def _try_copy_to_clipboard(text: str) -> bool:
+    """Attempt to copy text to clipboard.
+
+    Tries multiple clipboard methods for cross-platform support.
+
+    Args:
+        text: Text to copy to clipboard
+
+    Returns:
+        True if successfully copied, False otherwise
+    """
+    # Try pyperclip if available
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        return True
+    except ImportError:
+        pass
+
+    # Try Windows clipboard via ctypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+
+            user32.OpenClipboard(0)
+            user32.EmptyClipboard()
+
+            # Allocate global memory
+            text_bytes = text.encode('utf-8') + b'\x00'
+            h_mem = kernel32.GlobalAlloc(0x0042, len(text_bytes))
+            ptr = kernel32.GlobalLock(h_mem)
+            ctypes.memmove(ptr, text_bytes, len(text_bytes))
+            kernel32.GlobalUnlock(h_mem)
+
+            user32.SetClipboardData(1, h_mem)  # CF_TEXT = 1
+            user32.CloseClipboard()
+            return True
+        except Exception:
+            pass
+
+    # Try pbcopy on macOS
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+            process.communicate(text.encode('utf-8'))
+            return process.returncode == 0
+        except Exception:
+            pass
+
+    # Try xclip on Linux
+    if sys.platform.startswith("linux"):
+        try:
+            import subprocess
+            process = subprocess.Popen(
+                ['xclip', '-selection', 'clipboard'],
+                stdin=subprocess.PIPE
+            )
+            process.communicate(text.encode('utf-8'))
+            return process.returncode == 0
+        except Exception:
+            pass
+
+    return False
+
+
+def _mask_password(password: str, show_chars: int = 4) -> str:
+    """Create a masked version of password showing only first/last chars.
+
+    Args:
+        password: Password to mask
+        show_chars: Number of characters to show at start and end
+
+    Returns:
+        Masked password string like "Ab12****xy9!"
+    """
+    if len(password) <= show_chars * 2:
+        return "*" * len(password)
+
+    return password[:show_chars] + "*" * (len(password) - show_chars * 2) + password[-show_chars:]
 
 
 def generate_password(
@@ -72,16 +158,37 @@ def generate_password(
     return ''.join(password_chars)
 
 
-def preview_and_analyze(password: str) -> tuple[str, list[str]]:
-    """Display password and analyze its strength.
+def preview_and_analyze(password: str, secure_display: bool = True) -> tuple[str, list[str]]:
+    """Display password securely and analyze its strength.
+
+    By default, copies password to clipboard instead of displaying in terminal
+    to prevent exposure in shell history. Falls back to masked display if
+    clipboard is unavailable.
 
     Args:
         password: Password to analyze
+        secure_display: If True, use clipboard/masked display (default: True)
 
     Returns:
         Tuple of (strength, feedback_list)
     """
-    print(f"\nGenerated Password: {password}")
+    if secure_display:
+        # Try clipboard first (most secure - nothing in terminal history)
+        if _try_copy_to_clipboard(password):
+            print("\n[PASSWORD COPIED TO CLIPBOARD]")
+            print(f"Preview (masked): {_mask_password(password)}")
+            print("(Password has been copied to your clipboard - paste where needed)")
+        else:
+            # Clipboard unavailable - show masked with reveal option
+            print(f"\nGenerated Password (masked): {_mask_password(password)}")
+            reveal = input("Show full password? (y/n - WARNING: visible in terminal history): ").strip().lower()
+            if reveal == 'y':
+                print(f"Full Password: {password}")
+                print("WARNING: This password is now in your terminal history!")
+    else:
+        # Legacy insecure display (not recommended)
+        print(f"\nGenerated Password: {password}")
+
     strength, feedback = check_password_strength(password)
     print(f"Password Strength: {strength}")
 

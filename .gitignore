@@ -1,0 +1,42 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sensitive data - NEVER commit these
+vault.json
+vault.key
+vault.salt
+master.hash
+*.hash
+
+# Logs and tickets (contain sensitive info)
+logs/
+tickets/
+reports/
+login.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Distribution
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db

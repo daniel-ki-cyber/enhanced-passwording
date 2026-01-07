@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  password-vault:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist vault data
+      - vault-data:/app/data
+      - ./logs:/app/logs
+      - ./tickets:/app/tickets
+      - ./reports:/app/reports
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  vault-data:
+    driver: local

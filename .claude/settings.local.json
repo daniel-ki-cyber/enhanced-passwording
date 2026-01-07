@@ -8,7 +8,15 @@
       "Bash(python -m pip install:*)",
       "Bash(python -m pytest:*)",
       "Bash(wc:*)",
-      "Bash(git rev-parse:*)"
+      "Bash(git rev-parse:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Password Vault with encryption, breach detection, and SIEM integration\n\nSecure password management tool featuring:\n- AES-256 encryption with PBKDF2 key derivation \\(600K iterations\\)\n- HaveIBeenPwned breach detection with k-Anonymity\n- SIEM-compatible JSON logging for security events\n- Automatic incident ticketing for brute force detection\n- REST API \\(FastAPI\\) and CLI interfaces\n- Docker support\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh auth status:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ]
   }
 }
